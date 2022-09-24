@@ -207,21 +207,62 @@ public class KIFirServer {
             }
             return dictionary
         case .string(let string):
-            return replace(string: string.defaultValue.first ?? "", params: params)
+            switch(string.defaultValue){
+            case .example:
+                return "todo"
+            case .random:
+                return faker.lorem.word().lowercased()
+            case .value(let string):
+                return replace(string: string, params: params)
+            }
+            
         case .integer(let integer):
-            return Int(replace(string: integer.defaultValue.first ?? "", params: params)) ?? 0
+            switch(integer.defaultValue){
+            case .example:
+                return "todo"
+            case .random:
+                return faker.number.randomInt()
+            case .value(let integer):
+                return Int(replace(string: integer, params: params)) ?? 0
+            }
         case .number(let number):
-            return Double(replace(string: number.defaultValue.first ?? "", params: params)) ?? 0
+            switch(number.defaultValue){
+            case .example:
+                return "todo"
+            case .random:
+                return faker.number.randomDouble()
+            case .value(let number):
+                return replace(string: number, params: params)
+            }
         case .bool(let bool):
-            let boolString = replace(string: bool.defaultValue.first ?? "", params: params)
-            return boolString.uppercased() == "TRUE" || boolString.uppercased() == "YES" || boolString.uppercased() == "1"
+            switch(bool.defaultValue){
+            case .example:
+                return "todo"
+            case .random:
+                return faker.number.randomBool()
+            case .value(let bool):
+                let boolString = replace(string: bool, params: params)
+                return boolString.uppercased() == "TRUE" || boolString.uppercased() == "YES" || boolString.uppercased() == "1"
+            }
         case .array(let object):
             var array = [Any]()
-            guard let items = object.numberOfItems.first, items > 0 else { return array }
+            var items: Int
+            switch(object.numberOfItems){
+            case .example:
+                // todo
+                items = 0
+            case .random:
+                items = faker.number.randomInt(min: 0, max: 5)
+            case .value(let numbers):
+                items = Int(replace(string: numbers, params: params)) ?? 0
+            }
+            guard items > 0 else { return array }
             for _ in 0...(Int(items) - 1) {
-                array.append(generateResponce(schema: object.items.randomElement() ?? .string(.init(defaultValue: [])), params: params))
+                array.append(generateResponce(schema: object.items.randomElement() ?? .null(.init()), params: params))
             }
             return array
+        case .null(_):
+            return NSNull()
         }
     }
     

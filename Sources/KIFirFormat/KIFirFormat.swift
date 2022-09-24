@@ -8,7 +8,23 @@
 import Foundation
 
 public struct RequestSequence: Codable, Hashable, Equatable {
+    public init(description: String, requests: [RequestSequence.Request]) {
+        self.description = description
+        self.requests = requests
+    }
+    
     public struct Request: Codable, Hashable, Equatable, Identifiable {
+        public init(id: UUID = UUID(), description: String, path: String, method: RequestSequence.Request.RequestType, requered: Bool, code: Int, requestSchema: JSONSchemaTyped? = nil, responseSchema: JSONSchemaTyped) {
+            self.id = id
+            self.description = description
+            self.path = path
+            self.method = method
+            self.requered = requered
+            self.code = code
+            self.requestSchema = requestSchema
+            self.responseSchema = responseSchema
+        }
+        
         public enum RequestType: String, Codable {
             case HEAD,GET,POST,PUT,PATCH,DELETE
             public var withRequestBody: Bool {
@@ -75,37 +91,52 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
     case number(JSONSchemaNumber)
     case array(JSONSchemaArray)
     case bool(JSONSchemaBool)
+    case null(JSONSchemaNull)
     
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .object(let a0):
             try container.encode("object", forKey: JSONSchemaTyped.CodingKeys.type)
-            var propertyContainer = container.nestedContainer(keyedBy: CustomCodingKeys.self, forKey: .properties)
+            var propertyContainer = container.nestedContainer(keyedBy: CodingKeys.self, forKey: .properties)
             for property in a0.properties {
                 try propertyContainer.encode(property.type, forKey: .init(stringValue: property.name)!)
             }
-            try container.encode(a0.required, forKey: JSONSchemaTyped.CodingKeys.required)
+            if !a0.required.isEmpty {
+                try container.encode(a0.required, forKey: JSONSchemaTyped.CodingKeys.required)
+            }
         case .string(let a0):
             try container.encode("string", forKey: JSONSchemaTyped.CodingKeys.type)
-            try container.encode(a0.defaultValue, forKey: JSONSchemaTyped.CodingKeys.defaultValue)
+            try container.encode(a0.defaultValue, forKey: .init(stringValue: "defaultValue")!)
+            try container.encode(a0.validValue, forKey: .init(stringValue: "validValue")!)
         case .number(let a0):
             try container.encode("number", forKey: JSONSchemaTyped.CodingKeys.type)
-            try container.encode(a0.defaultValue, forKey: JSONSchemaTyped.CodingKeys.defaultValue)
+            try container.encode(a0.defaultValue, forKey: .init(stringValue: "defaultValue")!)
+            try container.encode(a0.validValue, forKey: .init(stringValue: "validValue")!)
         case .integer(let a0):
             try container.encode("integer", forKey: JSONSchemaTyped.CodingKeys.type)
-            try container.encode(a0.defaultValue, forKey: JSONSchemaTyped.CodingKeys.defaultValue)
+            try container.encode(a0.defaultValue, forKey: .init(stringValue: "defaultValue")!)
+            try container.encode(a0.validValue, forKey: .init(stringValue: "validValue")!)
         case .array(let a0):
             try container.encode("array", forKey: JSONSchemaTyped.CodingKeys.type)
             try container.encode(a0.items, forKey: JSONSchemaTyped.CodingKeys.items)
-            try container.encode(a0.numberOfItems, forKey: JSONSchemaTyped.CodingKeys.numberOfItems)
+            try container.encode(a0.numberOfItems, forKey: .init(stringValue: "numberOfItems")!)
+            try container.encode(a0.validNumberOfItems, forKey: .init(stringValue: "validNumberOfItems")!)
         case .bool(let a0):
             try container.encode("bool", forKey: JSONSchemaTyped.CodingKeys.type)
-            try container.encode(a0.defaultValue, forKey: JSONSchemaTyped.CodingKeys.defaultValue)
+            try container.encode(a0.defaultValue, forKey: .init(stringValue: "defaultValue")!)
+            try container.encode(a0.validValue, forKey: .init(stringValue: "validValue")!)
+        case .null(_):
+            try container.encode("null", forKey: JSONSchemaTyped.CodingKeys.type)
         }
     }
     
-    struct CustomCodingKeys: CodingKey {
+    struct CodingKeys: CodingKey {
+        static let type = CodingKeys(stringValue: "type")!
+        static let properties = CodingKeys(stringValue: "properties")!
+        static let required = CodingKeys(stringValue: "required")!
+        static let items = CodingKeys(stringValue: "items")!
+        
         var stringValue: String
         init?(stringValue: String) {
             self.stringValue = stringValue
@@ -114,15 +145,6 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
         init?(intValue: Int) {
             return nil
         }
-    }
-    
-    enum CodingKeys: CodingKey {
-        case type
-        case properties
-        case required
-        case defaultValue
-        case items
-        case numberOfItems
     }
     
     public init(from decoder: Decoder) throws {
@@ -141,6 +163,8 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
             self = .array(try decoder.singleValueContainer().decode(JSONSchemaArray.self))
         case "bool":
             self = .bool(try decoder.singleValueContainer().decode(JSONSchemaBool.self))
+        case "null":
+            self = .null(try decoder.singleValueContainer().decode(JSONSchemaNull.self))
         default:
             throw DecodingError.keyNotFound(CodingKeys.type, .init(codingPath: [CodingKeys.type], debugDescription: "Unknown type"))
         }
@@ -148,7 +172,7 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
 }
 
 public struct JSONSchemaObject: Codable, Hashable, Equatable {
-    internal init(properties: [JSONNamedObject], required: [JSONName]) {
+    public init(properties: [JSONNamedObject], required: [JSONName]) {
         self.properties = properties
         self.required = required
     }
@@ -162,7 +186,9 @@ public struct JSONSchemaObject: Codable, Hashable, Equatable {
         for property in properties {
             try propertyContainer.encode(property.type, forKey: .init(stringValue: property.name)!)
         }
-        try container.encode(self.required, forKey: .required)
+        if !self.required.isEmpty {
+            try container.encode(self.required, forKey: .required)
+        }
     }
     
     public struct CustomCodingKeys: CodingKey {
@@ -190,47 +216,72 @@ public struct JSONSchemaObject: Codable, Hashable, Equatable {
             properties.append(.init(name: key.stringValue, type: object))
         }
         self.properties = properties
-        self.required = try container.decode([JSONName].self, forKey: .required)
+        self.required = (try? container.decode([JSONName].self, forKey: .required)) ?? []
     }
 }
 
+public enum JSONFillValue: Codable, Hashable, Equatable {
+    case random
+    case example
+    case value(String)
+}
+
+public enum JSONFillValidator: Codable, Hashable, Equatable {
+    case any
+    case constant(String)
+}
 public struct JSONSchemaArray: Codable, Hashable, Equatable {
-    public init(items: [JSONSchemaTyped], numberOfItems: [UInt]) {
+    public init(items: [JSONSchemaTyped], numberOfItems: JSONFillValue, validNumberOfItems: JSONFillValidator) {
         self.items = items
         self.numberOfItems = numberOfItems
+        self.validNumberOfItems = validNumberOfItems
     }
     
     public var items: [JSONSchemaTyped]
-    public var numberOfItems: [UInt]
+    public var numberOfItems: JSONFillValue
+    public var validNumberOfItems: JSONFillValidator
 }
+
 public struct JSONSchemaString: Codable, Hashable, Equatable {
-    public init(defaultValue: [String]) {
+    public init(defaultValue: JSONFillValue, validValue: JSONFillValidator) {
         self.defaultValue = defaultValue
+        self.validValue = validValue
     }
     
-    public var defaultValue: [String]
+    public var defaultValue: JSONFillValue
+    public var validValue: JSONFillValidator
 }
 
 public struct JSONSchemaInteger: Codable, Hashable, Equatable {
-    public init(defaultValue: [String]) {
+    public init(defaultValue: JSONFillValue, validValue: JSONFillValidator) {
         self.defaultValue = defaultValue
+        self.validValue = validValue
     }
-    
-    public var defaultValue: [String]
+
+    public var defaultValue: JSONFillValue
+    public var validValue: JSONFillValidator
 }
 
 public struct JSONSchemaNumber: Codable, Hashable, Equatable {
-    public init(defaultValue: [String]) {
+    public init(defaultValue: JSONFillValue, validValue: JSONFillValidator) {
         self.defaultValue = defaultValue
+        self.validValue = validValue
     }
     
-    public var defaultValue: [String]
+    public var defaultValue: JSONFillValue
+    public var validValue: JSONFillValidator
 }
 
 public struct JSONSchemaBool: Codable, Hashable, Equatable {
-    public init(defaultValue: [String]) {
+    public init(defaultValue: JSONFillValue, validValue: JSONFillValidator) {
         self.defaultValue = defaultValue
+        self.validValue = validValue
     }
     
-    public var defaultValue: [String]
+    public var defaultValue: JSONFillValue
+    public var validValue: JSONFillValidator
+}
+
+public struct JSONSchemaNull: Codable, Hashable, Equatable {
+    public init() {}
 }
