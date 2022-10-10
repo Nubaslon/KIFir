@@ -14,7 +14,7 @@ public struct RequestSequence: Codable, Hashable, Equatable {
     }
     
     public struct Request: Codable, Hashable, Equatable, Identifiable {
-        public init(id: UUID = UUID(), description: String, path: String, method: RequestSequence.Request.RequestType, requered: Bool, code: Int, requestSchema: JSONSchemaTyped? = nil, responseSchema: JSONSchemaTyped) {
+        public init(id: UUID = UUID(), description: String, path: String, method: RequestSequence.Request.RequestType, requered: Bool, code: Int, requestSchema: JSONSchemaTyped? = nil, responseSchema: JSONSchemaTyped, responseExamples: [String]) {
             self.id = id
             self.description = description
             self.path = path
@@ -23,6 +23,7 @@ public struct RequestSequence: Codable, Hashable, Equatable {
             self.code = code
             self.requestSchema = requestSchema
             self.responseSchema = responseSchema
+            self.responseExamples = responseExamples
         }
         
         public enum RequestType: String, Codable {
@@ -42,6 +43,7 @@ public struct RequestSequence: Codable, Hashable, Equatable {
         public var code: Int
         public var requestSchema: JSONSchemaTyped?
         public var responseSchema: JSONSchemaTyped
+        public var responseExamples: [String]
     }
     public var description: String
     public var requests: [Request]
