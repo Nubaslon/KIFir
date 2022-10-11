@@ -14,7 +14,7 @@ public struct RequestSequence: Codable, Hashable, Equatable {
     }
     
     public struct Request: Codable, Hashable, Equatable, Identifiable {
-        public init(id: UUID = UUID(), description: String, path: String, method: RequestSequence.Request.RequestType, requered: Bool, code: Int, requestSchema: JSONSchemaTyped? = nil, responseSchema: JSONSchemaTyped, responseExamples: [String]) {
+        public init(id: UUID = UUID(), description: String, path: String, method: RequestSequence.Request.RequestType, requered: Bool, code: Int, requestSchema: JSONSchemaTyped? = nil, responseSchema: JSONSchemaTyped, responseExamples: [ExampleData], responseTime: Double) {
             self.id = id
             self.description = description
             self.path = path
@@ -24,6 +24,7 @@ public struct RequestSequence: Codable, Hashable, Equatable {
             self.requestSchema = requestSchema
             self.responseSchema = responseSchema
             self.responseExamples = responseExamples
+            self.responseTime = responseTime
         }
         
         public enum RequestType: String, Codable {
@@ -35,18 +36,32 @@ public struct RequestSequence: Codable, Hashable, Equatable {
                 }
             }
         }
-        public var id: UUID = UUID()
-        public var description: String
-        public var path: String
+        
+        public struct ExampleData: Codable, Hashable, Equatable, Identifiable {
+            public init(id: UUID = UUID(), name: String, json: String) {
+                self.id = id
+                self.name = name
+                self.json = json
+            }
+            
+            @DecodableDefault.UUID public var id: UUID = UUID()
+            @DecodableDefault.EmptyString public var name: String
+            @DecodableDefault.EmptyString public var json: String
+        }
+        
+        @DecodableDefault.UUID public var id: UUID = UUID()
+        @DecodableDefault.EmptyString public var description: String
+        @DecodableDefault.EmptyString public var path: String
         public var method: RequestType
-        public var requered: Bool
+        @DecodableDefault.False public var requered: Bool
         public var code: Int
         public var requestSchema: JSONSchemaTyped?
         public var responseSchema: JSONSchemaTyped
-        public var responseExamples: [String]
+        @DecodableDefault.EmptyList<[ExampleData]> public var responseExamples: [ExampleData]
+        @DecodableDefault.Double public var responseTime: Double
     }
-    public var description: String
-    public var requests: [Request]
+    @DecodableDefault.EmptyString public var description: String
+    @DecodableDefault.EmptyList<[Request]> public var requests: [Request]
 }
 
 public typealias JSONName = String
@@ -56,7 +71,7 @@ public struct JSONNamedObject: Codable, Hashable, Equatable, Identifiable {
         self.type = type
     }
     
-    public var id = UUID()
+    @DecodableDefault.UUID public var id = UUID()
     public var name: JSONName
     public var type: JSONSchemaTyped
     
@@ -125,7 +140,7 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
             try container.encode(a0.numberOfItems, forKey: .init(stringValue: "numberOfItems")!)
             try container.encode(a0.validNumberOfItems, forKey: .init(stringValue: "validNumberOfItems")!)
         case .bool(let a0):
-            try container.encode("bool", forKey: JSONSchemaTyped.CodingKeys.type)
+            try container.encode("boolean", forKey: JSONSchemaTyped.CodingKeys.type)
             try container.encode(a0.defaultValue, forKey: .init(stringValue: "defaultValue")!)
             try container.encode(a0.validValue, forKey: .init(stringValue: "validValue")!)
         case .null(_):
@@ -163,7 +178,7 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
             self = .number(try decoder.singleValueContainer().decode(JSONSchemaNumber.self))
         case "array":
             self = .array(try decoder.singleValueContainer().decode(JSONSchemaArray.self))
-        case "bool":
+        case "boolean", "bool":
             self = .bool(try decoder.singleValueContainer().decode(JSONSchemaBool.self))
         case "null":
             self = .null(try decoder.singleValueContainer().decode(JSONSchemaNull.self))
@@ -179,8 +194,8 @@ public struct JSONSchemaObject: Codable, Hashable, Equatable {
         self.required = required
     }
     
-    public var properties: [JSONNamedObject]
-    public var required: [JSONName]
+    @DecodableDefault.EmptyList<[JSONNamedObject]> public var properties: [JSONNamedObject]
+    @DecodableDefault.EmptyList<[JSONName]> public var required: [JSONName]
     
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: RootCodingKeys.self)
@@ -239,7 +254,7 @@ public struct JSONSchemaArray: Codable, Hashable, Equatable {
         self.validNumberOfItems = validNumberOfItems
     }
     
-    public var items: [JSONSchemaTyped]
+    @DecodableDefault.EmptyList<[JSONSchemaTyped]> public var items: [JSONSchemaTyped]
     public var numberOfItems: JSONFillValue
     public var validNumberOfItems: JSONFillValidator
 }
@@ -259,7 +274,7 @@ public struct JSONSchemaInteger: Codable, Hashable, Equatable {
         self.defaultValue = defaultValue
         self.validValue = validValue
     }
-
+    
     public var defaultValue: JSONFillValue
     public var validValue: JSONFillValidator
 }

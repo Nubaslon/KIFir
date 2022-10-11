@@ -129,19 +129,23 @@ public class KIFirServer {
                        let requestSchema = requestObject.requestSchema {
                         try self.checkRequest(schema: requestSchema, data: Data(request.body))
                     }
+                    
                     let object = self.generateResponce(
                         schema: requestObject.responseSchema,
-                        params: request.params.merging(request.queryParams, uniquingKeysWith: { _, new in new })
+                        params: request.params.merging(request.queryParams, uniquingKeysWith: { _, new in new }),
+                        example: self.validRandomExample(for: requestObject)
                     )
                     if object is [String: Any] || object is [Any],
-                        let data = try? JSONSerialization.data(withJSONObject: object) {
+                       let data = try? JSONSerialization.data(withJSONObject: object ?? NSNull()) {
                         print("Success request: \(request)")
+                        usleep(UInt32(Double(USEC_PER_SEC) * requestObject.responseTime))
                         self.delegate?.server(self, didHandleRequestID: requestObject.id)
                         return .raw(requestObject.code, "OK", ["Content-Type": "application/json"]) { writer in
                             try? writer.write(data)
                         }
                     } else {
                         print("Success request: \(request)")
+                        usleep(UInt32(Double(USEC_PER_SEC) * requestObject.responseTime))
                         self.delegate?.server(self, didHandleRequestID: requestObject.id)
                         return .raw(requestObject.code, "OK", [:]) { writer in
                             let data = String("\(object)").data(using: .utf8) ?? Data()
@@ -168,6 +172,27 @@ public class KIFirServer {
                 return .notFound
             }
         }
+    }
+    
+    func validRandomExample(for request: RequestSequence.Request) -> Any? {
+        let shufledExamples = request.responseExamples.shuffled()
+        for example in shufledExamples {
+            do {
+                let json = try JSONSerialization.jsonObject(with: example.json.data(using: .utf8) ?? Data(),
+                                                            options: [])
+                let encoder = JSONEncoder()
+                let jsonSchemaData = try encoder.encode(request.responseSchema)
+                let jsonSchema = try JSONSerialization.jsonObject(with: jsonSchemaData)
+                guard let jsonSchema = jsonSchema as? [String: Any] else {
+                    throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Bad schema"))
+                }
+                let result = try JSONSchema.validate(json, schema: jsonSchema)
+                if case .valid = result {
+                    return json
+                }
+            } catch {}
+        }
+        return nil
     }
     
     func checkRequest(schema: JSONSchemaTyped, data: Data) throws {
@@ -290,16 +315,17 @@ public class KIFirServer {
         }
     }
     
-    func generateResponce(schema: JSONSchemaTyped, params: [String: String]) -> Any {
+    func generateResponce(schema: JSONSchemaTyped, params: [String: String], example: Any?) -> Any? {
         switch(schema) {
         case .object(let object):
             var dictionary = [String: Any]()
+            let exampleDict = example as? [String: Any]
             for property in object.properties {
                 switch(config.optionalReturning) {
                 case .returnAll:
-                    dictionary[property.name] = generateResponce(schema: property.type, params: params)
+                    dictionary[property.name] = generateResponce(schema: property.type, params: params, example: exampleDict?[property.name])
                 case .returnRandom where Bool.random():
-                    dictionary[property.name] = generateResponce(schema: property.type, params: params)
+                    dictionary[property.name] = generateResponce(schema: property.type, params: params, example: exampleDict?[property.name])
                 default:
                     ()
                 }
@@ -308,7 +334,8 @@ public class KIFirServer {
         case .string(let string):
             switch(string.defaultValue){
             case .example:
-                return "todo"
+                let exampleString = example as? String
+                return exampleString
             case .random:
                 return faker.lorem.word().lowercased()
             case .value(let string):
@@ -318,7 +345,8 @@ public class KIFirServer {
         case .integer(let integer):
             switch(integer.defaultValue){
             case .example:
-                return "todo"
+                let exampleInt = example as? Int
+                return exampleInt
             case .random:
                 return faker.number.randomInt()
             case .value(let integer):
@@ -327,16 +355,18 @@ public class KIFirServer {
         case .number(let number):
             switch(number.defaultValue){
             case .example:
-                return "todo"
+                let exampleDouble = example as? Double
+                return exampleDouble
             case .random:
                 return faker.number.randomDouble()
             case .value(let number):
-                return replace(string: number, params: params)
+                return Double(replace(string: number, params: params)) ?? 0
             }
         case .bool(let bool):
             switch(bool.defaultValue){
             case .example:
-                return "todo"
+                let exampleBool = example as? Bool
+                return exampleBool
             case .random:
                 return faker.number.randomBool()
             case .value(let bool):
@@ -346,28 +376,50 @@ public class KIFirServer {
         case .array(let object):
             var array = [Any]()
             var items: Int
+            var arrayForExamples: [Any]
             switch(object.numberOfItems){
             case .example:
-                // todo
-                items = 0
+                arrayForExamples = (example as? [Any]) ?? []
+                items = arrayForExamples.count
             case .random:
-                items = faker.number.randomInt(min: 0, max: 5)
+                items = faker.number.randomInt(min: 1, max: 6)
+                arrayForExamples = updateSize(array: (example as? [Any]) ?? [], size: items)
             case .value(let numbers):
                 items = Int(replace(string: numbers, params: params)) ?? 0
+                arrayForExamples = updateSize(array: (example as? [Any]) ?? [], size: items)
             }
             guard items > 0 else { return array }
+            guard object.items.count > 0 else { return array }
             let toImportItems = Array(Array(0...(Int(object.items.count) - 1)).shuffled())
             for i in 0...(Int(items) - 1) {
                 if array.count < object.items.count {
-                    array.append(generateResponce(schema: object.items[toImportItems[i]], params: params))
+                    if let item = generateResponce(schema: object.items[toImportItems[i]], params: params, example: arrayForExamples[safe: i]) {
+                        array.append(item)
+                    }
                 } else {
-                    array.append(generateResponce(schema: object.items.randomElement() ?? .null(.init()), params: params))
+                    let randomImport = toImportItems.randomElement() ?? 0
+                    if let item = generateResponce(schema: object.items[randomImport], params: params, example: arrayForExamples[safe: i]) {
+                        array.append(item)
+                    }
                 }
             }
             return array
         case .null(_):
             return NSNull()
         }
+    }
+    
+    func updateSize(array: [Any], size: Int) -> [Any] {
+        guard array.count > 0 else { return [] }
+        var newArray = [Any]()
+        for i in 0...(Int(size) - 1) {
+            if newArray.count < array.count {
+                newArray.append(array[i])
+            } else {
+                newArray.append(array.randomElement() as Any)
+            }
+        }
+        return newArray
     }
     
     func replace(string: String, params: [String: String]) -> String {
@@ -465,5 +517,12 @@ public class KIFirServer {
 extension Swifter.HttpRequest: CustomStringConvertible {
     public var description: String {
         return "\(method)\(path)?\(queryParams.map({"\($0.0)=\($0.1)"}).joined(separator: "&"))"
+    }
+}
+
+extension Collection {
+    /// Returns the element at the specified index if it is within bounds, otherwise nil.
+    subscript (safe index: Index) -> Element? {
+        return indices.contains(index) ? self[index] : nil
     }
 }
