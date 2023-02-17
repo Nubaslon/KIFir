@@ -14,7 +14,7 @@ public struct RequestSequence: Codable, Hashable, Equatable {
     }
     
     public struct Request: Codable, Hashable, Equatable, Identifiable {
-        public init(id: UUID = UUID(), description: String, path: String, method: RequestSequence.Request.RequestType, requered: Bool, code: Int, requestSchema: JSONSchemaTyped? = nil, responseSchema: JSONSchemaTyped, responseExamples: [ExampleData], responseTime: Double) {
+        public init(id: UUID = UUID(), description: String, path: String, method: RequestSequence.Request.RequestType, requered: Bool, code: Int, requestSchema: JSONSchemaTyped? = nil, responseSchema: JSONSchemaTyped, responseExamples: [ExampleData], selectedExample: UUID?, responseTime: Double) {
             self.id = id
             self.description = description
             self.path = path
@@ -25,6 +25,7 @@ public struct RequestSequence: Codable, Hashable, Equatable {
             self.responseSchema = responseSchema
             self.responseExamples = responseExamples
             self.responseTime = responseTime
+            self.selectedExample = selectedExample
         }
         
         public enum RequestType: String, Codable {
@@ -58,6 +59,7 @@ public struct RequestSequence: Codable, Hashable, Equatable {
         public var requestSchema: JSONSchemaTyped?
         public var responseSchema: JSONSchemaTyped
         @DecodableDefault.EmptyList<[ExampleData]> public var responseExamples: [ExampleData]
+        public var selectedExample: UUID?
         @DecodableDefault.Double public var responseTime: Double
     }
     @DecodableDefault.EmptyString public var description: String
@@ -184,6 +186,25 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
             self = .null(try decoder.singleValueContainer().decode(JSONSchemaNull.self))
         default:
             throw DecodingError.keyNotFound(CodingKeys.type, .init(codingPath: [CodingKeys.type], debugDescription: "Unknown type"))
+        }
+    }
+    
+    public func unwrap<T>() -> T? {
+        switch(self) {
+        case .object(let object):
+            return object as? T
+        case .string(let object):
+            return object as? T
+        case .integer(let object):
+            return object as? T
+        case .number(let object):
+            return object as? T
+        case .array(let object):
+            return object as? T
+        case .bool(let object):
+            return object as? T
+        case .null(let object):
+            return object as? T
         }
     }
 }

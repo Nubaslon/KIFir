@@ -47,7 +47,8 @@ public class KIFirServer {
     
     public init(config: ServerConfig) {
         self.config = config
-        try? swifter.start(config.port)
+        swifter.listenAddressIPv4 = "localhost"
+        try? swifter.start(config.port, forceIPv4: true)
         generateFakerySymlink()
         enableDefaultRoutes()
     }
@@ -57,10 +58,16 @@ public class KIFirServer {
         restartServer()
     }
     
+    public func stopServer() {
+        swifter.stop()
+        swifter = HttpServer()
+    }
+    
     public func restartServer() {
         swifter.stop()
         swifter = HttpServer()
-        try? swifter.start(config.port)
+        swifter.listenAddressIPv4 = "localhost"
+        try? swifter.start(config.port, forceIPv4: true)
         enableDefaultRoutes()
     }
     
@@ -130,7 +137,7 @@ public class KIFirServer {
                         try self.checkRequest(schema: requestSchema, data: Data(request.body))
                     }
                     
-                    let object = self.generateResponce(
+                    let object = self.generateResponse(
                         schema: requestObject.responseSchema,
                         params: request.params.merging(request.queryParams, uniquingKeysWith: { _, new in new }),
                         example: self.validRandomExample(for: requestObject)
@@ -175,11 +182,12 @@ public class KIFirServer {
     }
     
     func validRandomExample(for request: RequestSequence.Request) -> Any? {
-        let shufledExamples = request.responseExamples.shuffled()
-        for example in shufledExamples {
+        if let selectedExampleId = request.selectedExample,
+            let example = request.responseExamples.first(where: { $0.id == selectedExampleId })  {
             do {
-                let json = try JSONSerialization.jsonObject(with: example.json.data(using: .utf8) ?? Data(),
+                var json = try JSONSerialization.jsonObject(with: example.json.data(using: .utf8) ?? Data(),
                                                             options: [])
+                json = FilterValues.removeNSNull(from: json)
                 let encoder = JSONEncoder()
                 let jsonSchemaData = try encoder.encode(request.responseSchema)
                 let jsonSchema = try JSONSerialization.jsonObject(with: jsonSchemaData)
@@ -191,6 +199,25 @@ public class KIFirServer {
                     return json
                 }
             } catch {}
+        } else {
+            let shufledExamples = request.responseExamples.shuffled()
+            for example in shufledExamples {
+                do {
+                    var json = try JSONSerialization.jsonObject(with: example.json.data(using: .utf8) ?? Data(),
+                                                                options: [])
+                    json = FilterValues.removeNSNull(from: json)
+                    let encoder = JSONEncoder()
+                    let jsonSchemaData = try encoder.encode(request.responseSchema)
+                    let jsonSchema = try JSONSerialization.jsonObject(with: jsonSchemaData)
+                    guard let jsonSchema = jsonSchema as? [String: Any] else {
+                        throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Bad schema"))
+                    }
+                    let result = try JSONSchema.validate(json, schema: jsonSchema)
+                    if case .valid = result {
+                        return json
+                    }
+                } catch {}
+            }
         }
         return nil
     }
@@ -315,7 +342,7 @@ public class KIFirServer {
         }
     }
     
-    func generateResponce(schema: JSONSchemaTyped, params: [String: String], example: Any?) -> Any? {
+    func generateResponse(schema: JSONSchemaTyped, params: [String: String], example: Any?) -> Any? {
         switch(schema) {
         case .object(let object):
             var dictionary = [String: Any]()
@@ -323,9 +350,9 @@ public class KIFirServer {
             for property in object.properties {
                 switch(config.optionalReturning) {
                 case .returnAll:
-                    dictionary[property.name] = generateResponce(schema: property.type, params: params, example: exampleDict?[property.name])
+                    dictionary[property.name] = generateResponse(schema: property.type, params: params, example: exampleDict?[property.name])
                 case .returnRandom where Bool.random():
-                    dictionary[property.name] = generateResponce(schema: property.type, params: params, example: exampleDict?[property.name])
+                    dictionary[property.name] = generateResponse(schema: property.type, params: params, example: exampleDict?[property.name])
                 default:
                     ()
                 }
@@ -377,28 +404,48 @@ public class KIFirServer {
             var array = [Any]()
             var items: Int
             var arrayForExamples: [Any]
+            var shouldShuffle = false
             switch(object.numberOfItems){
             case .example:
+                guard example != nil else {
+                    return nil
+                }
+                shouldShuffle = false
                 arrayForExamples = (example as? [Any]) ?? []
                 items = arrayForExamples.count
             case .random:
+                shouldShuffle = true
                 items = faker.number.randomInt(min: 1, max: 6)
                 arrayForExamples = updateSize(array: (example as? [Any]) ?? [], size: items)
             case .value(let numbers):
+                shouldShuffle = false
                 items = Int(replace(string: numbers, params: params)) ?? 0
                 arrayForExamples = updateSize(array: (example as? [Any]) ?? [], size: items)
             }
             guard items > 0 else { return array }
             guard object.items.count > 0 else { return array }
-            let toImportItems = Array(Array(0...(Int(object.items.count) - 1)).shuffled())
+            let toImportItems: [Int]
+            if shouldShuffle {
+                toImportItems = Array(Array(0...(Int(object.items.count) - 1)).shuffled())
+            } else {
+                toImportItems = Array(0...(Int(object.items.count) - 1))
+            }
             for i in 0...(Int(items) - 1) {
                 if array.count < object.items.count {
-                    if let item = generateResponce(schema: object.items[toImportItems[i]], params: params, example: arrayForExamples[safe: i]) {
+                    if let item = generateResponse(
+                        schema: object.items[toImportItems[i]],
+                        params: params,
+                        example: FilterValues.removeNSNull(from: arrayForExamples[safe: i])
+                    ) {
                         array.append(item)
                     }
                 } else {
                     let randomImport = toImportItems.randomElement() ?? 0
-                    if let item = generateResponce(schema: object.items[randomImport], params: params, example: arrayForExamples[safe: i]) {
+                    if let item = generateResponse(
+                        schema: object.items[randomImport],
+                        params: params,
+                        example: FilterValues.removeNSNull(from: arrayForExamples[safe: i])
+                    ) {
                         array.append(item)
                     }
                 }
