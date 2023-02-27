@@ -118,11 +118,11 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
         case .object(let a0):
             try container.encode("object", forKey: JSONSchemaTyped.CodingKeys.type)
             var propertyContainer = container.nestedContainer(keyedBy: CodingKeys.self, forKey: .properties)
-            for property in a0.properties {
+            for property in a0.properties.sorted(by: { $0.name < $1.name }) {
                 try propertyContainer.encode(property.type, forKey: .init(stringValue: property.name)!)
             }
             if !a0.required.isEmpty {
-                try container.encode(a0.required, forKey: JSONSchemaTyped.CodingKeys.required)
+                try container.encode(a0.required.filter({ requered_field in a0.properties.contains(where: { $0.name == requered_field }) }).sorted(), forKey: JSONSchemaTyped.CodingKeys.required)
             }
         case .string(let a0):
             try container.encode("string", forKey: JSONSchemaTyped.CodingKeys.type)
@@ -138,7 +138,7 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
             try container.encode(a0.validValue, forKey: .init(stringValue: "validValue")!)
         case .array(let a0):
             try container.encode("array", forKey: JSONSchemaTyped.CodingKeys.type)
-            try container.encode(a0.items, forKey: JSONSchemaTyped.CodingKeys.items)
+            try container.encode(a0.items.sorted(by: {$0.sortKey < $1.sortKey}), forKey: JSONSchemaTyped.CodingKeys.items)
             try container.encode(a0.numberOfItems, forKey: .init(stringValue: "numberOfItems")!)
             try container.encode(a0.validNumberOfItems, forKey: .init(stringValue: "validNumberOfItems")!)
         case .bool(let a0):
@@ -207,6 +207,25 @@ public enum JSONSchemaTyped: Codable, Hashable, Equatable {
             return object as? T
         }
     }
+    
+    var sortKey: String {
+        switch(self) {
+        case .object(let object):
+            return "object_\(object.id)"
+        case .string(let object):
+            return "string_\(object.id)"
+        case .integer(let object):
+            return "integer_\(object.id)"
+        case .number(let object):
+            return "number_\(object.id)"
+        case .array(let object):
+            return "array_\(object.id)"
+        case .bool(let object):
+            return "bool_\(object.id)"
+        case .null(_):
+            return "null"
+        }
+    }
 }
 
 public struct JSONSchemaObject: Codable, Hashable, Equatable {
@@ -217,11 +236,12 @@ public struct JSONSchemaObject: Codable, Hashable, Equatable {
     
     @DecodableDefault.EmptyList<[JSONNamedObject]> public var properties: [JSONNamedObject]
     @DecodableDefault.EmptyList<[JSONName]> public var required: [JSONName]
+    @DecodableDefault.UUID public var id = UUID()
     
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: RootCodingKeys.self)
         var propertyContainer = container.nestedContainer(keyedBy: CustomCodingKeys.self, forKey: .properties)
-        for property in properties {
+        for property in properties.sorted(by: {$0.name < $1.name}) {
             try propertyContainer.encode(property.type, forKey: .init(stringValue: property.name)!)
         }
         if !self.required.isEmpty {
@@ -249,7 +269,7 @@ public struct JSONSchemaObject: Codable, Hashable, Equatable {
         let container = try decoder.container(keyedBy: RootCodingKeys.self)
         let propertyContainer = try container.nestedContainer(keyedBy: CustomCodingKeys.self, forKey: .properties)
         var properties = [JSONNamedObject]()
-        for key in propertyContainer.allKeys {
+        for key in propertyContainer.allKeys.sorted(by: {$0.stringValue < $1.stringValue}) {
             let object = try propertyContainer.decode(JSONSchemaTyped.self, forKey: key)
             properties.append(.init(name: key.stringValue, type: object))
         }
@@ -275,6 +295,7 @@ public struct JSONSchemaArray: Codable, Hashable, Equatable {
         self.validNumberOfItems = validNumberOfItems
     }
     
+    @DecodableDefault.UUID public var id = UUID()
     @DecodableDefault.EmptyList<[JSONSchemaTyped]> public var items: [JSONSchemaTyped]
     public var numberOfItems: JSONFillValue
     public var validNumberOfItems: JSONFillValidator
@@ -286,6 +307,7 @@ public struct JSONSchemaString: Codable, Hashable, Equatable {
         self.validValue = validValue
     }
     
+    @DecodableDefault.UUID public var id = UUID()
     public var defaultValue: JSONFillValue
     public var validValue: JSONFillValidator
 }
@@ -296,6 +318,7 @@ public struct JSONSchemaInteger: Codable, Hashable, Equatable {
         self.validValue = validValue
     }
     
+    @DecodableDefault.UUID public var id = UUID()
     public var defaultValue: JSONFillValue
     public var validValue: JSONFillValidator
 }
@@ -306,6 +329,7 @@ public struct JSONSchemaNumber: Codable, Hashable, Equatable {
         self.validValue = validValue
     }
     
+    @DecodableDefault.UUID public var id = UUID()
     public var defaultValue: JSONFillValue
     public var validValue: JSONFillValidator
 }
@@ -316,6 +340,7 @@ public struct JSONSchemaBool: Codable, Hashable, Equatable {
         self.validValue = validValue
     }
     
+    @DecodableDefault.UUID public var id = UUID()
     public var defaultValue: JSONFillValue
     public var validValue: JSONFillValidator
 }

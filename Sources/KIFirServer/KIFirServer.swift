@@ -11,10 +11,23 @@ import Swifter
 import KIFirFormat
 import JSONSchema
 
+public struct LogingRequest: Identifiable {
+    public let id: UUID = UUID()
+    public let handeled: Bool
+    public let path: String
+    public let method: RequestSequence.Request.RequestType
+    public let code: Int
+    public let request: Data?
+    public let response: String
+}
+
 public protocol KIFirServerDelegate: AnyObject {
     func serverDidStartNewRequest(_ server: KIFirServer)
     func server(_ server: KIFirServer, didHandleRequestID: UUID)
     func server(_ server: KIFirServer, failedValidateRequestID: UUID)
+    func server(_ server: KIFirServer, logRequest: LogingRequest)
+    func serverDidStart(_ server: KIFirServer)
+    func serverDidStop(_ server: KIFirServer)
 }
 
 public class KIFirServer {
@@ -48,7 +61,12 @@ public class KIFirServer {
     public init(config: ServerConfig) {
         self.config = config
         swifter.listenAddressIPv4 = "localhost"
-        try? swifter.start(config.port, forceIPv4: true)
+        do {
+            try swifter.start(config.port, forceIPv4: true)
+            delegate?.serverDidStart(self)
+        } catch {
+            print(error)
+        }
         generateFakerySymlink()
         enableDefaultRoutes()
     }
@@ -60,19 +78,34 @@ public class KIFirServer {
     
     public func stopServer() {
         swifter.stop()
+        delegate?.serverDidStop(self)
         swifter = HttpServer()
     }
     
     public func restartServer() {
         swifter.stop()
+        delegate?.serverDidStop(self)
         swifter = HttpServer()
         swifter.listenAddressIPv4 = "localhost"
-        try? swifter.start(config.port, forceIPv4: true)
+        do {
+            try swifter.start(config.port, forceIPv4: true)
+            delegate?.serverDidStart(self)
+        } catch {
+            print(error)
+        }
         enableDefaultRoutes()
     }
     
     func enableDefaultRoutes() {
         swifter.notFoundHandler = { request in
+            self.delegate?.server(self, logRequest: .init(
+                handeled: false,
+                path: request.path,
+                method: RequestSequence.Request.RequestType(rawValue: request.method) ?? .GET,
+                code: 404,
+                request: Data(request.body),
+                response: String("NotFound"))
+            )
             print("NotFound request: \(request)")
             return .notFound
         }
@@ -147,6 +180,14 @@ public class KIFirServer {
                         print("Success request: \(request)")
                         usleep(UInt32(Double(USEC_PER_SEC) * requestObject.responseTime))
                         self.delegate?.server(self, didHandleRequestID: requestObject.id)
+                        self.delegate?.server(self, logRequest: .init(
+                            handeled: true,
+                            path: request.path,
+                            method: RequestSequence.Request.RequestType(rawValue: request.method) ?? .GET,
+                            code: requestObject.code,
+                            request: Data(request.body),
+                            response: String(data: data, encoding: .utf8) ?? "")
+                        )
                         return .raw(requestObject.code, "OK", ["Content-Type": "application/json"]) { writer in
                             try? writer.write(data)
                         }
@@ -154,6 +195,14 @@ public class KIFirServer {
                         print("Success request: \(request)")
                         usleep(UInt32(Double(USEC_PER_SEC) * requestObject.responseTime))
                         self.delegate?.server(self, didHandleRequestID: requestObject.id)
+                        self.delegate?.server(self, logRequest: .init(
+                            handeled: true,
+                            path: request.path,
+                            method: RequestSequence.Request.RequestType(rawValue: request.method) ?? .GET,
+                            code: requestObject.code,
+                            request: Data(request.body),
+                            response: String("\(object)"))
+                        )
                         return .raw(requestObject.code, "OK", [:]) { writer in
                             let data = String("\(object)").data(using: .utf8) ?? Data()
                             try? writer.write(data)
@@ -172,9 +221,25 @@ public class KIFirServer {
                 }
             }
             if let errorText = errorText {
+                self.delegate?.server(self, logRequest: .init(
+                    handeled: false,
+                    path: request.path,
+                    method: RequestSequence.Request.RequestType(rawValue: request.method) ?? .GET,
+                    code: 400,
+                    request: Data(request.body),
+                    response: String("\(errorText)"))
+                )
                 print("Error request: \(request)\n\(errorText)")
                 return .badRequest(.text(errorText))
             } else {
+                self.delegate?.server(self, logRequest: .init(
+                    handeled: false,
+                    path: request.path,
+                    method: RequestSequence.Request.RequestType(rawValue: request.method) ?? .GET,
+                    code: 404,
+                    request: Data(request.body),
+                    response: String("NotFound"))
+                )
                 print("NotFound request: \(request)")
                 return .notFound
             }
@@ -488,6 +553,7 @@ public class KIFirServer {
     
     func generateFakerySymlink() {
         customParams["uuid"] = { UUID().uuidString }
+        customParams["server_host"] = { "http://localhost:\(self.config.port)" }
         customParams["fakery.address.city"] = { self.faker.address.city() }
         customParams["fakery.address.streetName"] = { self.faker.address.streetName() }
         customParams["fakery.address.secondaryAddress"] = { self.faker.address.secondaryAddress() }
